@@ -34,6 +34,9 @@ func TestBranchDetached(t *testing.T) {
 	if !errors.Is(err, facts.ErrDetachedHead) {
 		t.Fatalf("Branch error = %v, want ErrDetachedHead", err)
 	}
+	if !errors.Is(err, errFake) {
+		t.Fatalf("Branch error = %v, want wrapped cause errFake", err)
+	}
 	if got != "" {
 		t.Fatalf("Branch = %q, want empty on error", got)
 	}
@@ -58,6 +61,9 @@ func TestOriginMissing(t *testing.T) {
 	got, err := facts.Origin(r)
 	if !errors.Is(err, facts.ErrNoOrigin) {
 		t.Fatalf("Origin error = %v, want ErrNoOrigin", err)
+	}
+	if !errors.Is(err, errFake) {
+		t.Fatalf("Origin error = %v, want wrapped cause errFake", err)
 	}
 	if got != "" {
 		t.Fatalf("Origin = %q, want empty on error", got)
@@ -90,6 +96,21 @@ func TestOwnerOfOriginFallback(t *testing.T) {
 	}
 }
 
+func TestOwnerOfSSHPort(t *testing.T) {
+	// A scheme-qualified ssh URL with an explicit port must not let the port
+	// colon shift the owner index.
+	r := fakeRunner{fn: func(a ...facts.Arg) (facts.CommandOutput, error) {
+		if a[2] == "remote.upstream.url" {
+			return "ssh://git@github.com:22/port-owner/repo.git\n", nil
+		}
+		return "", errFake
+	}}
+	got, err := facts.OwnerOf(r)
+	if err != nil || got != "port-owner" {
+		t.Fatalf("OwnerOf = %q, %v, want port-owner", got, err)
+	}
+}
+
 func TestOwnerOfNone(t *testing.T) {
 	r := fakeRunner{fn: func(...facts.Arg) (facts.CommandOutput, error) { return "", errFake }}
 	if _, err := facts.OwnerOf(r); !errors.Is(err, facts.ErrNoOrigin) {
@@ -98,15 +119,31 @@ func TestOwnerOfNone(t *testing.T) {
 }
 
 func TestOwnerOfUnparseable(t *testing.T) {
+	// A configured upstream that parses to an empty owner must not shadow a
+	// valid origin: OwnerOf skips the empty owner and falls through to origin.
+	r := fakeRunner{fn: func(a ...facts.Arg) (facts.CommandOutput, error) {
+		if a[2] == "remote.upstream.url" {
+			return "nonsense\n", nil
+		}
+		return "git@github.com:org-owner/repo.git\n", nil
+	}}
+	got, err := facts.OwnerOf(r)
+	if err != nil || got != "org-owner" {
+		t.Fatalf("OwnerOf = %q, %v, want org-owner via fall-through", got, err)
+	}
+}
+
+func TestOwnerOfEmptyOnly(t *testing.T) {
+	// When the only configured remote parses to an empty owner, OwnerOf must
+	// report ErrNoOrigin rather than a silent empty owner.
 	r := fakeRunner{fn: func(a ...facts.Arg) (facts.CommandOutput, error) {
 		if a[2] == "remote.upstream.url" {
 			return "nonsense\n", nil
 		}
 		return "", errFake
 	}}
-	got, err := facts.OwnerOf(r)
-	if err != nil || got != "" {
-		t.Fatalf("OwnerOf = %q, %v, want empty", got, err)
+	if _, err := facts.OwnerOf(r); !errors.Is(err, facts.ErrNoOrigin) {
+		t.Fatalf("OwnerOf error = %v, want ErrNoOrigin", err)
 	}
 }
 

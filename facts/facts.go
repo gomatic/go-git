@@ -60,7 +60,9 @@ type Owner string
 func OwnerOf(r Runner) (Owner, error) {
 	for _, name := range []string{"upstream", "origin"} {
 		if url, err := remoteURL(r, name); err == nil {
-			return ownerFromURL(url), nil
+			if owner := ownerFromURL(url); owner != "" {
+				return owner, nil
+			}
 		}
 	}
 	return "", ErrNoOrigin
@@ -78,13 +80,19 @@ func remoteURL(r Runner, name string) (OriginURL, error) {
 // returning "" when it cannot be parsed.
 func ownerFromURL(u OriginURL) Owner {
 	s := strings.TrimSuffix(string(u), ".git")
+	scheme := false
 	if i := strings.Index(s, "://"); i >= 0 {
 		s = s[i+3:]
+		scheme = true
 	}
 	if i := strings.LastIndex(s, "@"); i >= 0 {
 		s = s[i+1:]
 	}
-	s = strings.Replace(s, ":", "/", 1)
+	// Without a scheme, scp-style syntax separates host and path with a colon
+	// (host:owner/repo); with a scheme, a colon is a port and must stay put.
+	if !scheme {
+		s = strings.Replace(s, ":", "/", 1)
+	}
 	if parts := strings.Split(s, "/"); len(parts) >= 2 {
 		return Owner(parts[1])
 	}
