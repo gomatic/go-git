@@ -180,3 +180,43 @@ func TestErrorString(t *testing.T) {
 		t.Fatal("Error() does not return the underlying string")
 	}
 }
+
+// FuzzOwnerOf drives the remote-URL parser (the only external-bytes consumer)
+// with arbitrary git config output. The contract under fuzzing: the parser
+// never panics, and OwnerOf is total — it returns either a non-empty owner with
+// a nil error, or an empty owner with ErrNoOrigin, never any other shape.
+func FuzzOwnerOf(f *testing.F) {
+	seeds := []string{
+		"git@github.com:gomatic/go-git.git",
+		"https://github.com/up-owner/repo.git",
+		"ssh://git@github.com:22/port-owner/repo.git",
+		"https://github.com/owner/repo",
+		"git@github.com:owner/repo",
+		"nonsense",
+		"",
+		"@",
+		":",
+		"://",
+		"a:b:c/d/e.git",
+		"https://host/only",
+		"file:///local/path/repo.git",
+		"git@host:/leading/slash.git",
+	}
+	for _, s := range seeds {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, url string) {
+		r := fakeRunner{fn: func(...facts.Arg) (facts.CommandOutput, error) {
+			return facts.CommandOutput(url + "\n"), nil
+		}}
+		owner, err := facts.OwnerOf(r)
+		switch {
+		case err == nil && owner == "":
+			t.Fatalf("OwnerOf(%q) returned empty owner with nil error", url)
+		case err != nil && !errors.Is(err, facts.ErrNoOrigin):
+			t.Fatalf("OwnerOf(%q) error = %v, want ErrNoOrigin", url, err)
+		case err != nil && owner != "":
+			t.Fatalf("OwnerOf(%q) returned both owner %q and error %v", url, owner, err)
+		}
+	})
+}

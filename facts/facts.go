@@ -55,10 +55,13 @@ func Origin(r Runner) (OriginURL, error) {
 // Owner is the account/org that owns a repository (e.g. "nicerobot").
 type Owner string
 
+// remoteName is the short name of a configured git remote (e.g. "origin").
+type remoteName string
+
 // OwnerOf returns the owner parsed from the upstream remote, falling back to
 // origin. ErrNoOrigin is returned when neither remote is configured.
 func OwnerOf(r Runner) (Owner, error) {
-	for _, name := range []string{"upstream", "origin"} {
+	for _, name := range []remoteName{"upstream", "origin"} {
 		if url, err := remoteURL(r, name); err == nil {
 			if owner := ownerFromURL(url); owner != "" {
 				return owner, nil
@@ -68,8 +71,8 @@ func OwnerOf(r Runner) (Owner, error) {
 	return "", ErrNoOrigin
 }
 
-func remoteURL(r Runner, name string) (OriginURL, error) {
-	out, err := r.Run("config", "--get", Arg("remote."+name+".url"))
+func remoteURL(r Runner, name remoteName) (OriginURL, error) {
+	out, err := r.Run("config", "--get", Arg("remote."+string(name)+".url"))
 	if err != nil {
 		return "", err
 	}
